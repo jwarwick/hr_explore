@@ -1,0 +1,49 @@
+---
+title: "HR Exploration"
+output: html_notebook
+---
+
+Home run data downloaded from [BaseballSavant](https://baseballsavant.mlb.com).
+
+Read all csv files in the `data` directory into a single dataframe.
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+data_dir <- "./data/"
+data_files <- list.files(path=data_dir, pattern="*.csv", full.names=TRUE)
+data <- do.call(rbind, lapply(data_files, function (x) read.csv(x, na.strings=c("null", "0", "0.0"))))
+```
+
+
+Let's examine the rate at which home runs are hit in a given season.
+
+
+```{r}
+by_year <- data %>% group_by(game_year)
+
+years <- c(2011:2017)
+colors <- rainbow(length(years))
+plot(1, type='l', xlab='Day of Season', ylab='Cumulative Home Run Count', xlim=c(0,200),ylim=c(0,6000))
+for (y in years) {
+  year_data <- by_year %>% filter(game_year == y) %>% group_by(game_date)
+  sum <- cumsum(count(year_data)$n)
+  lines(sum, col=colors[y-2010])
+}
+legend("topright", legend = years, col = colors, lwd = 1,
+       cex = 0.5)
+```
+
+There does appears to be an inflection point around Day 50 of the 2016 season. After that point the slope of the 2016 and 2017 lines is steeper.
+
+Unfortunately, we only have home run distance information for the 2015 season onward. First, drop all data with no data. Then we can look at the distribution of distances.
+
+```{r}
+
+clean_data <- data %>% drop_na(hit_distance_sc)
+boxplot(hit_distance_sc ~ game_year, data=clean_data, xlab='Season', ylab='Home Run Distance')
+
+```
+
+
