@@ -7,13 +7,27 @@ Home run data downloaded from [BaseballSavant](https://baseballsavant.mlb.com).
 
 Read all csv files in the `data` directory into a single dataframe.
 
+Check for null values. Also need to strip out inside-the-park home runs, where the batter did not hit the ball out of the field of play.
+
 ```{r}
+
 library(dplyr)
 library(tidyr)
+
+set.seed(42274)
 
 data_dir <- "./data/"
 data_files <- list.files(path=data_dir, pattern="*.csv", full.names=TRUE)
 data <- do.call(rbind, lapply(data_files, function (x) read.csv(x, na.strings=c("null", "0", "0.0"))))
+
+a <- as.Date(data$game_date, format="%Y-%m-%d")
+b <- as.Date(data$game_date, format="%m/%d/%Y") # Produces NA when format is not "%m/%d/%Y"
+a[is.na(a)] <- b[!is.na(b)]
+data$date <- a
+
+hr_hits = grep(pattern="inside-the-park", x=data$des, invert=TRUE)
+data <- data[hr_hits, ]
+
 ```
 
 
@@ -21,6 +35,7 @@ Let's examine the rate at which home runs are hit in a given season.
 
 
 ```{r}
+
 by_year <- data %>% group_by(game_year)
 
 years <- c(2011:2017)
@@ -33,11 +48,12 @@ for (y in years) {
 }
 legend("topright", legend = years, col = colors, lwd = 1,
        cex = 0.5)
+
 ```
 
-There does appears to be an inflection point around Day 50 of the 2016 season. After that point the slope of the 2016 and 2017 lines is steeper.
+There does appears to be an inflection point around Day 50 of the 2016 season. After that point, the slope of the 2016 and 2017 lines is steeper.
 
-Unfortunately, we only have home run distance information for the 2015 season onward. First, drop all data with no data. Then we can look at the distribution of distances.
+Unfortunately, we only have home run distance information for the 2015 season onward. First, drop all entries with no distance data. Then we can look at the distribution of distances.
 
 ```{r}
 
@@ -46,4 +62,59 @@ boxplot(hit_distance_sc ~ game_year, data=clean_data, xlab='Season', ylab='Home 
 
 ```
 
+Next we can look at the distributions
 
+```{r}
+
+years <- c(2015:2017)
+colors <- rainbow(length(years))
+plot(1, type='l', xlab='Home Run Distance', ylab='Number of Hits', xlim=c(275,525),ylim=c(0,115))
+for (y in years) {
+  year_data <- clean_data[clean_data$game_year == y, ]
+  counts <- table(year_data$hit_distance_sc)
+  lines(counts, col=colors[y-2014], type="l")
+}
+legend("topright", legend = years, col = colors, lwd = 1,
+       cex = 0.5)
+
+```
+
+What is we segment the data at the inflection point in the 2016 season?
+
+```{r}
+
+clean_data <- clean_data[clean_data$game_year %in% c(2015, 2016, 2017), ]
+first_day_2016 <- first(sort(clean_data[clean_data$game_year == 2016, ]$date))
+
+set_ball_type <- function (curr_date, test_date) {
+  if (curr_date['date'] <= test_date) {
+    "pre"
+  }
+  else
+  {
+    "post"
+  }
+}
+
+ball_type <- apply(clean_data, 1, set_ball_type, first_day_2016 + 50)
+clean_data$ball_type = as.factor(ball_type)
+clean_data$ball_type <- ordered(clean_data$ball_type, c("pre", "post"))
+
+boxplot(hit_distance_sc ~ ball_type, data=clean_data, xlab='Ball Type', ylab='Home Run Distance')
+
+```
+
+```{r}
+
+ball_types <- c("pre", "post")
+colors <- rainbow(length(ball_types))
+plot(1, type='l', xlab='Home Run Distance', ylab='Number of Hits', xlim=c(275,525),ylim=c(0,200))
+for (bt in ball_types) {
+  type_data <- clean_data[clean_data$ball_type == bt, ]
+  counts <- table(type_data$hit_distance_sc)
+  lines(counts, col=colors[type_data[1, ]$ball_type], type="l")
+}
+legend("topright", legend = ball_types, col = colors, lwd = 1,
+       cex = 0.5)
+
+```
