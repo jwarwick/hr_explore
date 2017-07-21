@@ -16,17 +16,23 @@ library(tidyr)
 
 set.seed(42274)
 
+convert_dates <- function (f) {
+  a <- as.Date(f$game_date, format="%Y-%m-%d")
+  b <- as.Date(f$game_date, format="%m/%d/%Y") # Produces NA when format is not "%m/%d/%Y"
+  a[is.na(a)] <- b[!is.na(b)]
+  f$date <- a
+  return(f)
+}
+
 data_dir <- "./data/"
-data_files <- list.files(path=data_dir, pattern="*.csv", full.names=TRUE)
+data_files <- list.files(path=data_dir, pattern="*_hr_data.csv", full.names=TRUE)
 data <- do.call(rbind, lapply(data_files, function (x) read.csv(x, na.strings=c("null", "0", "0.0"))))
 
-a <- as.Date(data$game_date, format="%Y-%m-%d")
-b <- as.Date(data$game_date, format="%m/%d/%Y") # Produces NA when format is not "%m/%d/%Y"
-a[is.na(a)] <- b[!is.na(b)]
-data$date <- a
+data <- convert_dates(data)
 
 hr_hits = grep(pattern="inside-the-park", x=data$des, invert=TRUE)
 data <- data[hr_hits, ]
+
 
 ```
 
@@ -51,7 +57,7 @@ legend("topright", legend = years, col = colors, lwd = 1,
 
 ```
 
-There does appears to be an inflection point around Day 50 of the 2016 season. After that point, the slope of the 2016 and 2017 lines is steeper.
+There does appears to be an inflection point around Day 50 of the 2016 season. After that point, the slope of the 2016 and 2017 lines are steeper.
 
 Unfortunately, we only have home run distance information for the 2015 season onward. First, drop all entries with no distance data. Then we can look at the distribution of distances.
 
@@ -79,7 +85,7 @@ legend("topright", legend = years, col = colors, lwd = 1,
 
 ```
 
-What is we segment the data at the inflection point in the 2016 season?
+What if we segment the data at the inflection point in the 2016 season?
 
 ```{r}
 
@@ -118,3 +124,98 @@ legend("topright", legend = ball_types, col = colors, lwd = 1,
        cex = 0.5)
 
 ```
+
+```{r}
+
+pre_hr <- clean_data[clean_data$ball_type == "pre", ]
+post_hr <- clean_data[clean_data$ball_type == "post", ]
+qqplot(pre_hr$hit_distance_sc, post_hr$hit_distance_sc)
+abline(0, 1, col="red")
+
+```
+
+The Quantile-Quantile plot of home run distances over the `pre` modification baseballs and `post` modification baseballs indicates that they come from populations with a common distribution.
+
+Since we don't see any significant difference in home run distances, let's look at other kinds of hits during this same time period. Additional data was downloaded from StatCast, capturing all well hit, in the air, balls, regardless of the result of the play. Similar data cleaning was applied, removing empty fields.
+
+```{r}
+
+hits <- read.csv(file.path(data_dir, "well_hit_data.csv"), na.strings=c("null", "0", "0.0"))
+hits <- drop_na(hits, hit_distance_sc)
+hits <- convert_dates(hits)
+
+hist(hits$hit_distance_sc, breaks=80, xlab="Hit Distance", main="")
+
+```
+
+
+
+
+```{r}
+
+ball_type <- apply(hits, 1, set_ball_type, first_day_2016 + 50)
+hits$ball_type = as.factor(ball_type)
+hits$ball_type <- ordered(hits$ball_type, c("pre", "post"))
+
+boxplot(hit_distance_sc ~ ball_type, data=hits, xlab='Ball Type', ylab='Hit Distance')
+
+```
+
+```{r}
+
+pre_hits <- hits[hits$ball_type == "pre", ]
+post_hits <- hits[hits$ball_type == "post", ]
+qqplot(pre_hits$hit_distance_sc, post_hits$hit_distance_sc)
+abline(0, 1, col="red")
+
+```
+
+Let's look at the categorical data. Drop events that happen infrequently (double plays, fielding errors, sacrifice flys).
+
+```{r}
+
+drop_hits <- hits[hits$events %in% c("double", "field_out", "home_run", "single", "triple"), ]
+drop_hits <- droplevels(drop_hits)
+tbl <- table(drop_hits$events, drop_hits$ball_type)
+print(tbl)
+
+```
+
+```{r}
+
+mosaicplot(tbl, shade=TRUE)
+
+```
+
+```{r}
+
+c2 = chisq.test(tbl)
+print(c2)
+
+```
+
+Based on the results of the Chi-squared test, we can reject the null hypotheis that the ball type and the outcome of the batted ball are independent. It appears that we are getting fewer fly ball outs and triples, while increasing the number of home runs.
+
+Let's check with the Kruskal-Wallis test (for non-normal distributions).
+
+```{r}
+
+kw = kruskal.test(hit_distance_sc ~ ball_type, data=hits)
+print(kw)
+
+```
+
+Based on the very small `p-value` we can reject the null hypothesis that hit distances segmented by ball type are drawn from the same population.
+
+How about the home run balls?
+
+```{r}
+
+kw = kruskal.test(hit_distance_sc ~ ball_type, data=clean_data)
+print(kw)
+
+```
+
+If we only look at home runs segmented by ball type, we can not reject the null hypothesis. This is in line with the increased number of shorter home runs that appears after the ball type changes - presumably these are fly balls or triples that are now clearing the fence. Long home runs are still clipped at a maximum distance by striking physical objects in the stadium. If we had projected distance data, rather than actual distance data, we would expect to see long home runs increase in distance as well.
+
+
